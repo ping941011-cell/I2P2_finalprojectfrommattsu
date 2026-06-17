@@ -21,6 +21,8 @@ public:
     static int eval_ctx(
         State *state,
         int depth,
+        int alpha,
+        int beta,
         GameHistory& history,
         int ply,
         SearchContext& ctx,
@@ -36,3 +38,5 @@ public:
     static ParamMap default_params();
     static std::vector<ParamDef> param_defs();
 };
+
+int minimax(State* state, int depth, int alpha, int beta, bool is_maximizing);

@@ -1,6 +1,7 @@
 #include <utility>
 #include "state.hpp"
 #include "minimax.hpp"
+#include <algorithm>
 
 
 /*============================================================
@@ -11,6 +12,8 @@
 int MiniMax::eval_ctx(
     State *state,
     int depth,
+    int alpha,
+    int beta,
     GameHistory& history,
     int ply,
     SearchContext& ctx,
@@ -67,20 +70,23 @@ int MiniMax::eval_ctx(
         State* next = static_cast<State*>(state->next_state(action));
 
         bool same = next->same_player_as_parent();
-        // [Hackathon TODO 3-3]
-        // search the child one level deeper
-        int raw = eval_ctx(next, depth - (same ? 0 : 1), history, ply + 1, ctx, p);
-        // [Hackathon TODO 3-4]
-        // convert raw to the current player's perspective.
-        int score = same ? raw : -raw;
+        // applying alpha, beta tunning
+        int raw;
+        if (same) {
+            raw = eval_ctx(next, depth, alpha, beta, history, ply + 1, ctx, p);
+        }
+        else {
+            raw = eval_ctx(next, depth - 1, -beta, -alpha, history, ply + 1, ctx, p);
+        }
 
+        int score = same ? raw : -raw;
         delete next;
 
-        // [ Hackathon TODO 3-5 ]
-        // update best_score if this child is better.
         if (score > best_score) {
             best_score = score;
         }
+        alpha = std::max(alpha, best_score);
+        if (alpha >= beta) break;
     }
 
     history.pop(state->hash());
@@ -113,6 +119,9 @@ SearchResult MiniMax::search(
     int move_index = 0;
     int total_moves = (int)state->legal_actions.size();
 
+    int alpha = M_MAX;
+    int beta = P_MAX;
+
     for(auto& action : state->legal_actions){
         /* [ Hackathon TODO 4-1 ]
          * search this move like TODO 3, but starting from the root */
@@ -120,7 +129,13 @@ SearchResult MiniMax::search(
         bool same = next->same_player_as_parent();
         
         // Depth decreases by 1 (unless same player), ply starts at 1
-        int raw = eval_ctx(next, depth - (same ? 0 : 1), history, 1, ctx, p);
+        int raw;
+        if (same) {
+            raw = eval_ctx(next, depth, alpha, beta, history, 1, ctx, p);
+        }
+        else {
+            raw = eval_ctx(next, depth - 1, -beta, -alpha, history, 1, ctx, p);
+        }
         int score = same ? raw : -raw;
         
         delete next;
@@ -134,6 +149,7 @@ SearchResult MiniMax::search(
                 ctx.on_root_update({result.best_move, best_score, depth, move_index + 1, total_moves});
                 }
             }  
+        alpha = std::max(alpha, best_score);
         move_index++;
     }
 
