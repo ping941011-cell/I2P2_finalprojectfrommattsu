@@ -3,6 +3,21 @@
 #include "minimax.hpp"
 #include <algorithm>
 
+enum TTFlag {
+    TT_EXACT,
+    TT_LOWERBOUND,
+    TT_UPPERBOUND
+};
+
+struct TTEntry {
+    uint64_t zobrist_key = 0;
+    int depth = -1;
+    int score = 0;
+    TTFlag flag;
+};
+
+const int TT_SIZE = 1048576;
+std::vector<TTEntry> tt(TT_SIZE);
 
 /*============================================================
  * MiniMax — eval_ctx
@@ -26,6 +41,25 @@ int MiniMax::eval_ctx(
     if(ctx.stop){
         return 0;
     }
+
+    int original_alpha = alpha;
+    uint64_t current_hash = state->hash();
+    int tt_index = current_hash % TT_SIZE;
+
+    if (tt[tt_index].zobrist_key == current_hash && tt[tt_index].depth >= depth) {
+        if (tt[tt_index].flag == TT_EXACT) {
+            return tt[tt_index].score;
+        } else if (tt[tt_index].flag == TT_LOWERBOUND) {
+            alpha = std::max(alpha, tt[tt_index].score);
+        } else if (tt[tt_index].flag == TT_UPPERBOUND) {
+            beta = std::min(beta, tt[tt_index].score);
+        }
+
+        if (alpha >= beta) {
+            return tt[tt_index].score;
+        }
+    }
+
 
     /* === Lazy move generation (sets game_state) === */
     if(state->legal_actions.empty() && state->game_state == UNKNOWN){
@@ -89,6 +123,20 @@ int MiniMax::eval_ctx(
         if (alpha >= beta) break;
     }
 
+    TTFlag flag;
+    if (best_score <= original_alpha) {
+        flag = TT_UPPERBOUND;
+    } else if (best_score >= beta) {
+        flag = TT_LOWERBOUND;
+    } else {
+        flag = TT_EXACT;
+    }
+
+    tt[tt_index].zobrist_key = current_hash;
+    tt[tt_index].depth = depth;
+    tt[tt_index].score = best_score;
+    tt[tt_index].flag = flag;
+
     history.pop(state->hash());
     return best_score;
 }
@@ -123,8 +171,6 @@ SearchResult MiniMax::search(
     int beta = P_MAX;
 
     for(auto& action : state->legal_actions){
-        /* [ Hackathon TODO 4-1 ]
-         * search this move like TODO 3, but starting from the root */
         State* next = static_cast<State*>(state->next_state(action));
         bool same = next->same_player_as_parent();
         
@@ -140,8 +186,6 @@ SearchResult MiniMax::search(
         
         delete next;
             if(score > best_score){
-                // [ Hackathon TODO 4-2 ]
-                // keep this move if it is the best so far
                 best_score = score;
                 result.best_move = action;
 
