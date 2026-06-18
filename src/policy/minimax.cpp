@@ -68,10 +68,6 @@ int MiniMax::eval_ctx(
 
     /* === Terminal / leaf checks === */
 
-    // [ Hackathon TODO 3-1 ]
-    // return the score for a winning terminal state
-    // Hint: prefer faster wins by using ply.
-
     if(state->game_state == WIN){
         return P_MAX - ply;
     }
@@ -93,32 +89,66 @@ int MiniMax::eval_ctx(
         return score;
     }
 
+    std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state](const Move& a, const Move& b) {
+        int a_attacker = state->piece_at(state->player, a.first.first, a.first.second);
+        int a_victim = state->piece_at(1 - state->player, a.second.first, a.second.second);
+        
+        int b_attacker = state->piece_at(state->player, b.first.first, b.first.second);
+        int b_victim = state->piece_at(1 - state->player, b.second.first, b.second.second);
+
+        int score_a = (a_victim != 0) ? (100 * a_victim - a_attacker) : 0;
+        int score_b = (b_victim != 0) ? (100 * b_victim - b_attacker) : 0;
+
+        return score_a > score_b;
+    });
+    
     /* === Negamax loop === */
     int best_score = M_MAX;
+    bool first_move = true;
 
     for(auto& action : state->legal_actions){
-        // [ Hackathon TODO 3-2 ]
-        // create the child state after applying action
         State* next = static_cast<State*>(state->next_state(action));
-
         bool same = next->same_player_as_parent();
-        // applying alpha, beta tunning
+        
         int raw;
-        if (same) {
-            raw = eval_ctx(next, depth, alpha, beta, history, ply + 1, ctx, p);
-        }
-        else {
-            raw = eval_ctx(next, depth - 1, -beta, -alpha, history, ply + 1, ctx, p);
+        int score;
+
+        if (first_move) {
+            if (same) {
+                raw = eval_ctx(next, depth, alpha, beta, history, ply + 1, ctx, p);
+            } else {
+                raw = eval_ctx(next, depth - 1, -beta, -alpha, history, ply + 1, ctx, p);
+            }
+            score = same ? raw : -raw;
+            first_move = false;
+            
+        } else {
+            if (same) {
+                raw = eval_ctx(next, depth, alpha, alpha + 1, history, ply + 1, ctx, p);
+            } else {
+                raw = eval_ctx(next, depth - 1, -(alpha + 1), -alpha, history, ply + 1, ctx, p);
+            }
+            score = same ? raw : -raw;
+
+            if (score > alpha && score < beta) {
+                if (same) {
+                    raw = eval_ctx(next, depth, score, beta, history, ply + 1, ctx, p);
+                } else {
+                    raw = eval_ctx(next, depth - 1, -beta, -score, history, ply + 1, ctx, p);
+                }
+                score = same ? raw : -raw;
+            }
         }
 
-        int score = same ? raw : -raw;
         delete next;
 
         if (score > best_score) {
             best_score = score;
         }
         alpha = std::max(alpha, best_score);
-        if (alpha >= beta) break;
+        if (alpha >= beta) {
+            break;
+        }
     }
 
     TTFlag flag;
@@ -178,6 +208,19 @@ int MiniMax::quiescence(
         return 0;
     }
 
+    std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state](const Move& a, const Move& b) {
+        int a_attacker = state->piece_at(state->player, a.first.first, a.first.second);
+        int a_victim = state->piece_at(1 - state->player, a.second.first, a.second.second);
+        
+        int b_attacker = state->piece_at(state->player, b.first.first, b.first.second);
+        int b_victim = state->piece_at(1 - state->player, b.second.first, b.second.second);
+
+        int score_a = (a_victim != 0) ? (100 * a_victim - a_attacker) : 0;
+        int score_b = (b_victim != 0) ? (100 * b_victim - b_attacker) : 0;
+
+        return score_a > score_b;
+    });
+
     int best_score = stand_pat;
 
     for(auto& action : state->legal_actions){
@@ -235,6 +278,18 @@ SearchResult MiniMax::search(
         state->get_legal_actions();
     }
 
+    std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state](const Move& a, const Move& b) {
+        int a_attacker = state->piece_at(state->player, a.first.first, a.first.second);
+        int a_victim = state->piece_at(1 - state->player, a.second.first, a.second.second);
+        
+        int b_attacker = state->piece_at(state->player, b.first.first, b.first.second);
+        int b_victim = state->piece_at(1 - state->player, b.second.first, b.second.second);
+
+        int score_a = (a_victim != 0) ? (100 * a_victim - a_attacker) : 0;
+        int score_b = (b_victim != 0) ? (100 * b_victim - b_attacker) : 0;
+
+        return score_a > score_b;
+    });
 
     int best_score = M_MAX - 10;
     int move_index = 0;
@@ -242,36 +297,46 @@ SearchResult MiniMax::search(
 
     int alpha = M_MAX;
     int beta = P_MAX;
+    bool first_move = true;
 
     for(auto& action : state->legal_actions){
         State* next = static_cast<State*>(state->next_state(action));
         bool same = next->same_player_as_parent();
         
-        // Depth decreases by 1 (unless same player), ply starts at 1
         int raw;
-        if (same) {
-            raw = eval_ctx(next, depth, alpha, beta, history, 1, ctx, p);
+        int score;
+
+        if (first_move) {
+            if (same) raw = eval_ctx(next, depth, alpha, beta, history, 1, ctx, p);
+            else      raw = eval_ctx(next, depth - 1, -beta, -alpha, history, 1, ctx, p);
+            score = same ? raw : -raw;
+            first_move = false;
+        } else {
+            if (same) raw = eval_ctx(next, depth, alpha, alpha + 1, history, 1, ctx, p);
+            else      raw = eval_ctx(next, depth - 1, -(alpha + 1), -alpha, history, 1, ctx, p);
+            score = same ? raw : -raw;
+
+            if (score > alpha && score < beta) {
+                if (same) raw = eval_ctx(next, depth, score, beta, history, 1, ctx, p);
+                else      raw = eval_ctx(next, depth - 1, -beta, -score, history, 1, ctx, p);
+                score = same ? raw : -raw;
+            }
         }
-        else {
-            raw = eval_ctx(next, depth - 1, -beta, -alpha, history, 1, ctx, p);
-        }
-        int score = same ? raw : -raw;
         
         delete next;
-            if(score > best_score){
-                best_score = score;
-                result.best_move = action;
 
-                if(p.report_partial && ctx.on_root_update){
+        if(score > best_score){
+            best_score = score;
+            result.best_move = action;
+
+            if(p.report_partial && ctx.on_root_update){
                 ctx.on_root_update({result.best_move, best_score, depth, move_index + 1, total_moves});
-                }
-            }  
+            }
+        }  
         alpha = std::max(alpha, best_score);
         move_index++;
     }
 
-    // [ Hackathon TODO 4-3 ]
-    // update result and return
     result.score = best_score;
     result.nodes = ctx.nodes;
     result.seldepth = ctx.seldepth;
