@@ -19,6 +19,9 @@ struct TTEntry {
 const int TT_SIZE = 1048576;
 std::vector<TTEntry> tt(TT_SIZE);
 
+const int MAX_PLY = 128;
+Move killer_moves[MAX_PLY][2];
+
 /*============================================================
  * MiniMax — eval_ctx
  *
@@ -89,19 +92,27 @@ int MiniMax::eval_ctx(
         return score;
     }
 
-    std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state](const Move& a, const Move& b) {
+    std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state, ply](const Move& a, const Move& b) {
         int a_attacker = state->piece_at(state->player, a.first.first, a.first.second);
         int a_victim = state->piece_at(1 - state->player, a.second.first, a.second.second);
         
         int b_attacker = state->piece_at(state->player, b.first.first, b.first.second);
         int b_victim = state->piece_at(1 - state->player, b.second.first, b.second.second);
 
-        int score_a = (a_victim != 0) ? (100 * a_victim - a_attacker) : 0;
-        int score_b = (b_victim != 0) ? (100 * b_victim - b_attacker) : 0;
+        auto get_score = [&](const Move& m, int attacker, int victim) {
+            if (victim != 0) {
+                return 1000000 + (100 * victim - attacker);
+            }
+            if (ply < MAX_PLY) {
+                if (m == killer_moves[ply][0]) return 900000;
+                if (m == killer_moves[ply][1]) return 800000;
+            }
+            return 0;
+        };
 
-        return score_a > score_b;
+        return get_score(a, a_attacker, a_victim) > get_score(b, b_attacker, b_victim);
     });
-    
+
     /* === Negamax loop === */
     int best_score = M_MAX;
     bool first_move = true;
@@ -147,7 +158,14 @@ int MiniMax::eval_ctx(
         }
         alpha = std::max(alpha, best_score);
         if (alpha >= beta) {
-            break;
+            int victim = state->piece_at(1 - state->player, action.second.first, action.second.second);
+            if (victim == 0 && ply < MAX_PLY) {
+                if (killer_moves[ply][0] != action) {
+                    killer_moves[ply][1] = killer_moves[ply][0];
+                    killer_moves[ply][0] = action;
+                }
+            }
+            break; // 紀錄完後一樣剪枝
         }
     }
 
@@ -285,10 +303,14 @@ SearchResult MiniMax::search(
         int b_attacker = state->piece_at(state->player, b.first.first, b.first.second);
         int b_victim = state->piece_at(1 - state->player, b.second.first, b.second.second);
 
-        int score_a = (a_victim != 0) ? (100 * a_victim - a_attacker) : 0;
-        int score_b = (b_victim != 0) ? (100 * b_victim - b_attacker) : 0;
+        auto get_score = [&](const Move& m, int attacker, int victim) {
+            if (victim != 0) return 1000000 + (100 * victim - attacker);
+            if (m == killer_moves[1][0]) return 900000;
+            if (m == killer_moves[1][1]) return 800000;
+            return 0;
+        };
 
-        return score_a > score_b;
+        return get_score(a, a_attacker, a_victim) > get_score(b, b_attacker, b_victim);
     });
 
     int best_score = M_MAX - 10;
