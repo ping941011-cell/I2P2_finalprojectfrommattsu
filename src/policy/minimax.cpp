@@ -88,9 +88,7 @@ int MiniMax::eval_ctx(
     history.push(state->hash());
 
     if(depth <= 0){
-        int score = state->evaluate(
-            p.use_kp_eval, p.use_eval_mobility, &history
-        ); 
+        int score = quiescence(state, alpha, beta, ply, ctx, p); 
         history.pop(state->hash());
         return score;
     }
@@ -138,6 +136,81 @@ int MiniMax::eval_ctx(
     tt[tt_index].flag = flag;
 
     history.pop(state->hash());
+    return best_score;
+}
+
+/*============================================================
+ * MiniMax — quiescence
+ *============================================================*/
+int MiniMax::quiescence(
+    State *state,
+    int alpha,
+    int beta,
+    int ply,
+    SearchContext& ctx,
+    const MMParams& p
+){
+    ctx.nodes++;
+    if(ply > ctx.seldepth){
+        ctx.seldepth = ply;
+    }
+    if(ctx.stop){
+        return 0;
+    }
+
+    int stand_pat = state->evaluate(p.use_kp_eval, p.use_eval_mobility, nullptr);
+
+    if (stand_pat >= beta) {
+        return beta;
+    }
+    if (alpha < stand_pat) {
+        alpha = stand_pat;
+    }
+
+    if(state->legal_actions.empty() && state->game_state == UNKNOWN){
+        state->get_legal_actions();
+    }
+
+    if(state->game_state == WIN){
+        return P_MAX - ply;
+    }
+    if(state->game_state == DRAW){
+        return 0;
+    }
+
+    int best_score = stand_pat;
+
+    for(auto& action : state->legal_actions){
+        int to_r = action.second.first;
+        int to_c = action.second.second;
+        int opp_player = 1 - state->player;
+        
+        if (state->piece_at(opp_player, to_r, to_c) == 0) {
+            continue;
+        }
+
+        State* next = static_cast<State*>(state->next_state(action));
+        bool same = next->same_player_as_parent();
+        
+        int raw;
+        if (same) {
+            raw = quiescence(next, alpha, beta, ply + 1, ctx, p);
+        } else {
+            raw = quiescence(next, -beta, -alpha, ply + 1, ctx, p);
+        }
+
+        int score = same ? raw : -raw;
+        delete next;
+
+        if (score > best_score) {
+            best_score = score;
+        }
+        alpha = std::max(alpha, best_score);
+        if (alpha >= beta) {
+            break;
+        }
+    }
+
     return best_score;
 }
 
