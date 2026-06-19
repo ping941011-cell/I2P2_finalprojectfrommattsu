@@ -2,6 +2,20 @@
 #include "state.hpp"
 #include "minimax.hpp"
 #include <algorithm>
+#include <unordered_map>
+#include <string>
+
+static std::unordered_map<std::string, Move> opening_book;
+static bool book_loaded = false;
+
+static void init_opening_book() {
+    opening_book["rnbqk/ppppp/...../...../PPPPP/RNBQK_0"] = Move(Point(4, 2), Point(3, 2));
+    opening_book["rnbqk/ppppp/...../..P../PP.PP/RNBQK_1"] = Move(Point(1, 2), Point(2, 2));
+    opening_book["rnbqk/pp.pp/..p../..P../PP.PP/RNBQK_0"] = Move(Point(5, 3), Point(4, 2));
+    opening_book["rnbqk/ppppp/...../...P./PPP.P/RNBQK_1"] = Move(Point(1, 3), Point(2, 3));
+    opening_book["rnbqk/ppppp/...../.P.../P.PPP/RNBQK_1"] = Move(Point(1, 2), Point(2, 2));
+    book_loaded = true;
+}
 
 enum TTFlag {
     TT_EXACT,
@@ -296,6 +310,31 @@ SearchResult MiniMax::search(
         state->get_legal_actions();
     }
 
+    // ==========================================
+    // 1. 開局庫秒殺機制 (零風險，O(1) 出步)
+    // ==========================================
+    if (!book_loaded) {
+        init_opening_book();
+    }
+
+    std::string board_key = state->encode_board() + "_" + std::to_string(state->player);
+    if (opening_book.find(board_key) != opening_book.end()) {
+        Move book_move = opening_book[board_key];
+        for (auto& action : state->legal_actions) {
+            if (action == book_move) {
+                result.best_move = book_move;
+                result.score = 10; 
+                result.nodes = 1;
+                result.seldepth = 1;
+                result.pv = { book_move };
+                return result; 
+            }
+        }
+    }
+
+    // ==========================================
+    // 2. 走步排序 (MVV-LVA + Killer Heuristic)
+    // ==========================================
     std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state](const Move& a, const Move& b) {
         int a_attacker = state->piece_at(state->player, a.first.first, a.first.second);
         int a_victim = state->piece_at(1 - state->player, a.second.first, a.second.second);
@@ -304,7 +343,9 @@ SearchResult MiniMax::search(
         int b_victim = state->piece_at(1 - state->player, b.second.first, b.second.second);
 
         auto get_score = [&](const Move& m, int attacker, int victim) {
+            // 吃子優先 (大吃小)
             if (victim != 0) return 1000000 + (100 * victim - attacker);
+            // 殺手啟發式
             if (m == killer_moves[1][0]) return 900000;
             if (m == killer_moves[1][1]) return 800000;
             return 0;
@@ -313,6 +354,9 @@ SearchResult MiniMax::search(
         return get_score(a, a_attacker, a_victim) > get_score(b, b_attacker, b_victim);
     });
 
+    // ==========================================
+    // 3. PVS 主迴圈
+    // ==========================================
     int best_score = M_MAX - 10;
     int move_index = 0;
     int total_moves = (int)state->legal_actions.size();
@@ -362,10 +406,10 @@ SearchResult MiniMax::search(
     result.score = best_score;
     result.nodes = ctx.nodes;
     result.seldepth = ctx.seldepth;
-    result.pv = { result.best_move }; // Store the best move as the principal variation
+    result.pv = { result.best_move };
 
     return result;
-} 
+}
 
 
 /*============================================================
