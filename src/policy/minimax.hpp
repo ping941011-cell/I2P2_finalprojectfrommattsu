@@ -28,7 +28,8 @@ public:
         GameHistory& history,
         int ply,
         SearchContext& ctx,
-        const MMParams& p
+        const MMParams& p,
+        bool allow_null = true
     );
     static int quiescence(
         State *state,

@@ -49,7 +49,8 @@ int MiniMax::eval_ctx(
     GameHistory& history,
     int ply,
     SearchContext& ctx,
-    const MMParams& p
+    const MMParams& p,
+    bool allow_null
 ){
     ctx.nodes++;
     if(ply > ctx.seldepth){
@@ -104,6 +105,25 @@ int MiniMax::eval_ctx(
         int score = quiescence(state, alpha, beta, ply, ctx, p); 
         history.pop(state->hash());
         return score;
+    }
+
+    int R = 2; // 深度縮減量
+
+    if (allow_null && depth >= R + 1 && ply > 0) {    
+        int stand_pat = state->evaluate(p.use_kp_eval, p.use_eval_mobility, nullptr);
+        
+        if (stand_pat >= beta) {
+            State* null_state = static_cast<State*>(state->create_null_state());
+            if (null_state != nullptr) {
+                int null_score = -eval_ctx(null_state, depth - 1 - R, -beta, -beta + 1, history, ply + 1, ctx, p, false);
+                delete null_state;
+                
+                if (null_score >= beta) {
+                    history.pop(state->hash());
+                    return beta; 
+                }
+            }
+        }
     }
 
     std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state, ply](const Move& a, const Move& b) {
@@ -310,9 +330,6 @@ SearchResult MiniMax::search(
         state->get_legal_actions();
     }
 
-    // ==========================================
-    // 1. 開局庫秒殺機制 (零風險，O(1) 出步)
-    // ==========================================
     if (!book_loaded) {
         init_opening_book();
     }
@@ -332,9 +349,6 @@ SearchResult MiniMax::search(
         }
     }
 
-    // ==========================================
-    // 2. 走步排序 (MVV-LVA + Killer Heuristic)
-    // ==========================================
     std::sort(state->legal_actions.begin(), state->legal_actions.end(), [&state](const Move& a, const Move& b) {
         int a_attacker = state->piece_at(state->player, a.first.first, a.first.second);
         int a_victim = state->piece_at(1 - state->player, a.second.first, a.second.second);
@@ -354,9 +368,6 @@ SearchResult MiniMax::search(
         return get_score(a, a_attacker, a_victim) > get_score(b, b_attacker, b_victim);
     });
 
-    // ==========================================
-    // 3. PVS 主迴圈
-    // ==========================================
     int best_score = M_MAX - 10;
     int move_index = 0;
     int total_moves = (int)state->legal_actions.size();
