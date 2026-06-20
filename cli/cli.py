@@ -45,7 +45,7 @@ def _init_game(game_name: str, board_size: int | None = None) -> None:
     _game_ctx.update(_minichess_ctx())
 
 
-ALGO_CHOICES = ["minimax", "random"]
+ALGO_CHOICES = ["114062331_submission", "minimax", "random"]
 
 # ---------------------------------------------------------------------------
 # Board display (game-specific)
@@ -687,15 +687,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--white-algo",
-        default="minimax",
+        default="114062331_submission",
         choices=ALGO_CHOICES,
-        help="Algorithm for White (default: minimax).",
+        help="Algorithm for White (default: 114062331_submission).",
     )
     parser.add_argument(
         "--black-algo",
-        default="minimax",
+        default="114062331_submission",
         choices=ALGO_CHOICES,
-        help="Algorithm for Black (default: minimax).",
+        help="Algorithm for Black (default: 114062331_submission).",
     )
     parser.add_argument(
         "--verbose",

@@ -15,16 +15,17 @@
  *============================================================*/
 
 // KP material (10x scale for fine positional granularity)
-static const int kp_material[7] = {0, 20, 60, 70, 80, 200, 1000};
+// Rook > Bishop > Knight: standard ordering, Rook controls full rank/file
+static const int kp_material[7] = {0, 20, 100, 70, 80, 200, 1000};
 
 // Material-only (simple scale)
-static const int simple_material[7] = {0, 2, 6, 7, 8, 20, 100};
+static const int simple_material[7] = {0, 2, 10, 7, 8, 20, 100};
 
 // Piece-Square Tables (white perspective, mirror for black)
 static const int pst[6][BOARD_H][BOARD_W] = {
-    // Pawn
-    {{ 0,  0,  0,  0,  0}, {15, 15, 15, 15, 15}, { 4,  6, 10,  6,  4},
-     { 2,  4,  6,  4,  2}, { 0,  2,  2,  2,  0}, { 0,  0,  0,  0,  0}},
+    // Pawn — D-file (col 3) is true center in 5-col board, should score highest
+    {{ 0,  0,  0,  0,  0}, {15, 15, 15, 15, 15}, { 4,  6,  8, 10,  4},
+     { 2,  4,  5,  7,  2}, { 0,  2,  2,  2,  0}, { 0,  0,  0,  0,  0}},
     // Rook
     {{ 2,  2,  2,  2,  2}, { 4,  4,  4,  4,  4}, { 0,  0,  2,  0,  0},
      { 0,  0,  2,  0,  0}, { 0,  0,  2,  0,  0}, { 0,  0,  0,  0,  0}},
@@ -71,9 +72,7 @@ int State::evaluate(
 
     // [ Hackathon TODO 1-1 ]
     // if in win state, return max score(you can check base_state.hpp for max score)
-    if(this->game_state == WIN){
-        return P_MAX;
-    }
+    if(game_state == WIN) return P_MAX;
 
     auto self_board = this->board.board[this->player];
     auto oppn_board = this->board.board[1 - this->player];
@@ -86,42 +85,94 @@ int State::evaluate(
         int oppn_kr = -1, oppn_kc = -1;
         // [ Hackathon TODO 1-3 ]
         // get the position for player's king and opponent's king
-        for(int r = 0; r < BOARD_H; r++){
-            for(int c = 0; c < BOARD_W; c++){
-                if(self_board[r][c] == 6) { self_kr = r; self_kc = c; }
-                if(oppn_board[r][c] == 6) { oppn_kr = r; oppn_kc = c; }
-            }
+        for(int r=0; r<BOARD_H; r++) for(int c=0; c<BOARD_W; c++){
+            if(self_board[r][c] == 6){ self_kr = r; self_kc = c; }
+            if(oppn_board[r][c] == 6){ oppn_kr = r; oppn_kc = c; }
         }
 
         // [ Hackathon TODO 1-4 ]
         // sum player/opponent pieces' value and add to score
         // if enemy king is still on the board, you should also call king_tropism for your pieces and add the value to score
         // king_tropism is already given above
-        for(int r = 0; r < BOARD_H; r++){
-            for(int c = 0; c < BOARD_W; c++){
-                int p_self = self_board[r][c];
-                if(p_self > 0){
-                    self_score += kp_material[p_self];
-                    // Mirror PST row for Black (player 1)
-                    int pst_r = (this->player == 0) ? r : (BOARD_H - 1 - r);
-                    self_score += pst[p_self - 1][pst_r][c];
-                    
-                    if(oppn_kr != -1){
-                        self_score += king_tropism(p_self, r, c, oppn_kr, oppn_kc);
-                    }
-                }
 
-                int p_oppn = oppn_board[r][c];
-                if(p_oppn > 0){
-                    oppn_score += kp_material[p_oppn];
-                    // Mirror PST row for opponent
-                    int pst_r = (1 - this->player == 0) ? r : (BOARD_H - 1 - r);
-                    oppn_score += pst[p_oppn - 1][pst_r][c];
-                    
-                    if(self_kr != -1){
-                        oppn_score += king_tropism(p_oppn, r, c, self_kr, self_kc);
+        // Passed-pawn bonus (sr=0 means promotion row for current player)
+        static const int pp_bonus[BOARD_H] = {0, 40, 25, 15, 5, 0};
+
+        // Endgame king-activity bonus (sr perspective: 0=enemy back, 5=own back)
+        static const int king_eg[BOARD_H][BOARD_W] = {
+            { 0, 2, 3, 2, 0},
+            { 2, 5, 8, 5, 2},
+            { 4, 7,10, 7, 4},
+            { 4, 7,10, 7, 4},
+            { 0, 3, 4, 3, 0},
+            {-4,-2, 0,-2,-4},
+        };
+
+        int total_non_king = 0;
+        for(int r=0; r<BOARD_H; r++) for(int c=0; c<BOARD_W; c++){
+            if(self_board[r][c] && self_board[r][c] != 6) total_non_king++;
+            if(oppn_board[r][c] && oppn_board[r][c] != 6) total_non_king++;
+        }
+        bool is_endgame = (total_non_king <= 8);
+
+        for(int r=0; r<BOARD_H; r++) for(int c=0; c<BOARD_W; c++){
+            int pt = self_board[r][c];
+            if(pt){
+                // white advances toward row 0; black advances toward row 5 → mirror when black
+                int sr = (this->player == 0) ? r : (BOARD_H - 1 - r);
+                self_score += kp_material[pt] + pst[pt-1][sr][c];
+                if(oppn_kr >= 0)
+                    self_score += king_tropism(pt, r, c, oppn_kr, oppn_kc);
+                // Passed pawn
+                if(pt == 1){
+                    bool passed = true;
+                    int c0 = std::max(0,c-1), c1 = std::min(BOARD_W-1,c+1);
+                    if(this->player == 0){
+                        for(int rr=0; rr<r && passed; rr++)
+                            for(int cc=c0; cc<=c1 && passed; cc++)
+                                if(oppn_board[rr][cc]==1) passed=false;
+                    } else {
+                        for(int rr=r+1; rr<BOARD_H && passed; rr++)
+                            for(int cc=c0; cc<=c1 && passed; cc++)
+                                if(oppn_board[rr][cc]==1) passed=false;
                     }
+                    if(passed) self_score += pp_bonus[sr];
                 }
+            }
+            int op = oppn_board[r][c];
+            if(op){
+                // opponent advances in opposite direction to self → swap mirror logic
+                int mr = (this->player == 0) ? (BOARD_H - 1 - r) : r;
+                oppn_score += kp_material[op] + pst[op-1][mr][c];
+                if(self_kr >= 0)
+                    oppn_score += king_tropism(op, r, c, self_kr, self_kc);
+                // Opponent passed pawn
+                if(op == 1){
+                    bool passed = true;
+                    int c0 = std::max(0,c-1), c1 = std::min(BOARD_W-1,c+1);
+                    if(this->player == 0){ // opponent=black, advances toward row 5
+                        for(int rr=r+1; rr<BOARD_H && passed; rr++)
+                            for(int cc=c0; cc<=c1 && passed; cc++)
+                                if(self_board[rr][cc]==1) passed=false;
+                    } else { // opponent=white, advances toward row 0
+                        for(int rr=0; rr<r && passed; rr++)
+                            for(int cc=c0; cc<=c1 && passed; cc++)
+                                if(self_board[rr][cc]==1) passed=false;
+                    }
+                    if(passed) oppn_score += pp_bonus[mr];
+                }
+            }
+        }
+
+        // Endgame king centralization
+        if(is_endgame){
+            if(self_kr >= 0){
+                int sr = (this->player == 0) ? self_kr : (BOARD_H-1-self_kr);
+                self_score += king_eg[sr][self_kc];
+            }
+            if(oppn_kr >= 0){
+                int mr = (this->player == 0) ? (BOARD_H-1-oppn_kr) : oppn_kr;
+                oppn_score += king_eg[mr][oppn_kc];
             }
         }
 
@@ -130,11 +181,9 @@ int State::evaluate(
 
         // [ Hackathon TODO 1-2 ]
         // Simply add each piece's value to score
-        for(int r = 0; r < BOARD_H; r++){
-            for(int c = 0; c < BOARD_W; c++){
-                if(self_board[r][c] > 0) self_score += simple_material[self_board[r][c]];
-                if(oppn_board[r][c] > 0) oppn_score += simple_material[oppn_board[r][c]];
-            }
+        for(int r=0;r<BOARD_H;r++) for(int c=0;c<BOARD_W;c++){
+            if(self_board[r][c]) self_score += simple_material[self_board[r][c]];
+            if(oppn_board[r][c]) oppn_score += simple_material[oppn_board[r][c]];
         }
     }
 
@@ -145,18 +194,11 @@ int State::evaluate(
         // [ Hackathon TODO 1-5 ]
         // you can calculate mobility by legal actions size
         // bonus += 2 * (self_mobility - oppn_mobility);
-        int self_mobility = this->legal_actions.size();
-        int oppn_mobility = 0;
-        
-        // Generate a null state (pass the turn) to check how many moves the opponent has
-        State* null_state = static_cast<State*>(this->create_null_state());
-        if(null_state){
-            oppn_mobility = null_state->legal_actions.size();
-            delete null_state;
-        }
-        
+        int self_mobility = (int)this->legal_actions.size();
+        State* opp_state = static_cast<State*>(this->create_null_state());
+        int oppn_mobility = (int)opp_state->legal_actions.size();
+        delete opp_state;
         bonus += 2 * (self_mobility - oppn_mobility);
-
     }
 
     return self_score - oppn_score + bonus;
@@ -255,6 +297,7 @@ State* State::next_state(const Move& move){
     State* ns = new State(next, opp);
     ns->zobrist_hash = h;
     ns->zobrist_valid = true;
+    ns->step = this->step + 1;
     return ns;
 }
 
@@ -273,12 +316,11 @@ static const int move_table_rook_bishop[8][7][2] = {
 // [ Hackathon TODO 2-1 ]
 // fill the knight move table
 static const int move_table_knight[8][2] = {
-    {2, 1}, {2, -1}, {-2, 1}, {-2, -1},
-    {1, 2}, {1, -2}, {-1, 2}, {-1, -2}
+    {1,2},{1,-2},{-1,2},{-1,-2},{2,1},{2,-1},{-2,1},{-2,-1}
 };
 static const int move_table_king[8][2] = {
-{1, 0}, {0, 1}, {-1, 0}, {0, -1},
-{1, 1}, {1, -1}, {-1, 1}, {-1, -1},
+  {1, 0}, {0, 1}, {-1, 0}, {0, -1},
+  {1, 1}, {1, -1}, {-1, 1}, {-1, -1},
 };
 
 
@@ -385,15 +427,12 @@ void State::get_legal_actions_naive(){
                     case 3: //knight
                         // [ Hackathon TODO 2-2 ]
                         // complete knight's movement, you can refer to other pieces' movement
-                        for(auto move : move_table_knight){
+                        for(auto move: move_table_knight){
                             int p[2] = {move[0] + i, move[1] + j};
 
-                            // Check bounds
-                            if(p[0] >= BOARD_H || p[0] < 0 || p[1] >= BOARD_W || p[1] < 0){
+                            if(p[0]>=BOARD_H || p[0]<0 || p[1]>=BOARD_W || p[1]<0){
                                 continue;
                             }
-                            
-                            // Check if blocked by own piece
                             now_piece = self_board[p[0]][p[1]];
                             if(now_piece){
                                 continue;
@@ -401,15 +440,15 @@ void State::get_legal_actions_naive(){
 
                             all_actions.push_back(Move(Point(i, j), Point(p[0], p[1])));
 
-                            // Check if it captures the opponent's king
                             oppn_piece = oppn_board[p[0]][p[1]];
-                            if(oppn_piece == 6){
+                            if(oppn_piece==6){
                                 this->game_state = WIN;
                                 this->legal_actions = all_actions;
                                 return;
                             }
                         }
                         break;
+
                     case 6: //king
                         for(auto move: move_table_king){
                             int p[2] = {move[0] + i, move[1] + j};
@@ -662,6 +701,10 @@ void State::get_legal_actions_bitboard(){
  * Dispatcher
  *============================================================*/
 void State::get_legal_actions(){
+    if(step >= MAX_STEP){
+        game_state = DRAW;
+        return;
+    }
     #ifdef USE_BITBOARD
     get_legal_actions_bitboard();
     #else
@@ -676,8 +719,8 @@ const char piece_table[2][7][5] = {
 };
 /**
  * @brief encode the output for command line output
- * 
- * @return std::string 
+ *
+ * @return std::string
  */
 std::string State::encode_output() const{
     std::stringstream ss;
@@ -701,8 +744,8 @@ std::string State::encode_output() const{
 
 /**
  * @brief encode the state to the format for player
- * 
- * @return std::string 
+ *
+ * @return std::string
  */
 std::string State::encode_state(){
     std::stringstream ss;
@@ -810,7 +853,7 @@ std::string State::cell_display(int row, int col) const{
     }
 }
 
-/* === Repetition: chess 3-fold rule === */
+/* === Repetition check === */
 bool State::check_repetition(const GameHistory& history, int& out_score) const {
     if(history.count(hash()) >= 3){
         out_score = 0;  /* draw */

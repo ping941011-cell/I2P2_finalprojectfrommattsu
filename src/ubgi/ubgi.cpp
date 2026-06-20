@@ -8,12 +8,14 @@
 #include <chrono>
 #include <algorithm>
 #include <cstdlib>
+#include <pthread.h>
 
 #include "ubgi.hpp"
 #include "config.hpp"
 #include "search_types.hpp"
 #include "../policy/registry.hpp"
 #include "../policy/game_history.hpp"
+#include "../policy/114062331_submission.hpp"
 
 namespace ubgi {
 
@@ -263,6 +265,18 @@ static std::string format_pv(const std::vector<Move>& pv){
 
 static std::atomic<uint32_t> g_search_gen{0};
 
+struct DoSearchArgs {
+    int max_depth;
+    int64_t movetime_ms;
+    bool infinite;
+    uint32_t my_gen;
+    SearchContext ctx;
+    Board board;
+    int player;
+    GameHistory history;
+    int step;
+};
+
 static void do_search(
     int max_depth,
     int64_t movetime_ms,
@@ -311,6 +325,12 @@ static void do_search(
     uint64_t total_nodes = 0;
 
     auto search_start = std::chrono::high_resolution_clock::now();
+
+    // Bug 2: set a single hard deadline so eval_ctx/quiescence compare against it
+    if(movetime_ms > 0){
+        ctx.deadline = std::chrono::steady_clock::now()
+                       + std::chrono::milliseconds(movetime_ms - 50);
+    }
 
     /* === Root move partial-result callback === */
     ctx.on_root_update = [&](const RootUpdate& upd){
@@ -458,7 +478,9 @@ static void do_search(
         if(movetime_ms > 0 && total_ms * 2 >= movetime_ms){
             break;
         }
-        if(result.score >= P_MAX - 100 || result.score <= M_MAX + 100){
+        // Only stop early for forced wins. When losing, keep searching deeper
+        // to find the best defensive move and delay the loss as long as possible.
+        if(result.score >= P_MAX - 100){
             break;
         }
     }
@@ -468,6 +490,14 @@ static void do_search(
         g_bestmove_sent = true;
     }
     g_searching = false;
+}
+
+static void* do_search_pthread_entry(void* arg) {
+    DoSearchArgs* a = static_cast<DoSearchArgs*>(arg);
+    do_search(a->max_depth, a->movetime_ms, a->infinite, a->my_gen,
+              a->ctx, a->board, a->player, a->history, a->step);
+    delete a;
+    return nullptr;
 }
 
 
@@ -505,9 +535,19 @@ static void cmd_go(std::istringstream& iss){
     g_bestmove_sent = false;
     uint32_t gen = g_search_gen.load();
     g_best_move = Move();
-    g_search_thread = std::thread(
-        do_search, max_depth, movetime_ms, infinite, gen, ctx, g_board, g_player, g_history, g_step
-    );
+    auto* args = new DoSearchArgs{
+        max_depth, movetime_ms, infinite, gen,
+        ctx, g_board, g_player, g_history, g_step
+    };
+    g_search_thread = std::thread([args](){
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);  // 64 MB stack
+        pthread_t tid;
+        pthread_create(&tid, &attr, do_search_pthread_entry, args);
+        pthread_attr_destroy(&attr);
+        pthread_join(tid, nullptr);
+    });
 }
 
 
@@ -674,6 +714,8 @@ void loop(){
             g_player = 0;
             g_step = 0;
             g_history.clear();
+            MiniMax::clear_tables();
+            Submission114::clear_tables();
         }else if(cmd == "d"){
             cmd_display();
         }else if(cmd == "quit"){

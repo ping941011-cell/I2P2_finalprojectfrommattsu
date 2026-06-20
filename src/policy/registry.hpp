@@ -15,6 +15,7 @@
 #include "game_history.hpp"
 #include "minimax.hpp"
 #include "random.hpp"
+#include "114062331_submission.hpp"
 
 struct AlgoEntry {
     std::string name;
@@ -25,6 +26,14 @@ struct AlgoEntry {
 
 inline const std::vector<AlgoEntry>& get_algo_table(){
     static const std::vector<AlgoEntry> table = {
+        {
+            "114062331_submission",
+            Submission114::default_params(),
+            Submission114::param_defs(),
+            [](State* s, int d, GameHistory& h, SearchContext& c){
+                return Submission114::search(s, d, h, c);
+            }
+        },
         {
             "minimax",
             MiniMax::default_params(),
@@ -54,4 +63,4 @@ inline const AlgoEntry* find_algo(const std::string& name){
     return nullptr;
 }
 
-inline std::string default_algo_name(){ return "minimax"; }
+inline std::string default_algo_name(){ return "114062331_submission"; }

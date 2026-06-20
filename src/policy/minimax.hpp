@@ -37,7 +37,8 @@ public:
         int beta,
         int ply,
         SearchContext& ctx,
-        const MMParams& p
+        const MMParams& p,
+        bool allow_threat_ext = true
     );
     static SearchResult search(
         State *state,
@@ -46,6 +47,7 @@ public:
         SearchContext& ctx
     );
 
+    static void clear_tables();
     static ParamMap default_params();
     static std::vector<ParamDef> param_defs();
 };
